@@ -1,0 +1,1773 @@
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+options(download.file.method="libcurl")
+
+#install.packages("here")
+# install.packages("statnet")
+# install.packages("igraph")
+#install.packages("intergraph")
+library(statnet)
+#library(igraph)
+library(here)
+library(tidyverse)
+library(network)
+library(intergraph)
+```
+
+# Empirical Population
+
+## Import Data
+
+```{r}
+
+# bring in empirical csvs
+
+emp_egodef <- read.csv("egoid_demo_def_04.15.21_SK.csv")
+emp_venuedef <- read.csv("venueid_type_def_04.15.21_SK.csv")
+empir_venue_attendance <- read.csv("21.05.27_matrixWeighted_SK.csv")
+
+```
+
+
+
+## Convert non 0's in the Emp venue attendance file to 1's
+
+```{r}
+
+#have 01 matrix include all cols except for the ego id list
+emp_venue_attendance01 <- empir_venue_attendance[, 2:1249] 
+
+#replace all non-0's with 1
+emp_venue_attendance01[emp_venue_attendance01 > 0 ] <-  1
+
+#isolate egoid list in original dataset
+egoid <- empir_venue_attendance[, 1]
+
+#convert to dataframe
+egoid <- as.data.frame(egoid)
+
+#bind cols with egoid and synthvenueattendance01
+emp_venue_attendance01 <- bind_cols(egoid, emp_venue_attendance01)
+
+#remove unneeded data elements
+rm(egoid)
+
+```
+
+
+
+##  Create Empirical Network object and QA
+
+```{r}
+
+#order ego dataframe to align with the emp_net original network object
+emp_egos_ordered <- semi_join(emp_egodef, emp_venue_attendance01, by = c("radaridChar" = "egoid"))
+
+# assign row.names to original matrix so the egoids don't get converted to 1's
+row.names(emp_venue_attendance01) <- emp_venue_attendance01$egoid
+
+#remove egoid column
+emp_venue_attendance01 <- emp_venue_attendance01 %>% 
+  dplyr::select(-c(egoid))
+
+
+#convert to network object
+empnet <- as.network(emp_venue_attendance01, bipartite = 1248, directed = FALSE)
+
+#convert network object to matrix
+empnet <- as.matrix(empnet)
+
+#subset network matrix
+subset_empnet <- empnet[1:31,1:15]
+
+
+#subset original matrix
+subset_original <- emp_venue_attendance01[1:31,1:15]
+
+
+#view original vs. network matrix
+view(subset_original)
+view(subset_empnet)
+
+#good, we can remove the subsets now
+
+rm(subset_original, subset_empnet)
+
+
+```
+
+
+
+
+
+## Attach empirical ego-level node attributes and assign degree
+
+```{r}
+
+#attach node attributes
+#convert synthnet back to network object
+empnet <- as.network(empnet, bipartite = 1248, directed = FALSE)
+
+#subset adjacency matrix to just include egos
+empnet_egodegrees <- degree(empnet)[substr(empnet%v%"vertex.names",1,1)=="r"] / 2
+
+# Get vector of all names (ego and venues) in network object
+emp_allNames <- empnet%v%"vertex.names"
+
+# Select only ego names
+emp_egoNames <- emp_allNames[substr(empnet%v%"vertex.names",1,1)=="r"]
+
+# Subset ego df for only egos included in network object
+emp_ego_reduced <-  emp_egodef[emp_egodef$radaridChar %in% emp_egoNames,]
+
+# Order ego df using network object names
+emp_ego_wDegree <- emp_ego_reduced[match(emp_egoNames, emp_ego_reduced$radaridChar),]
+
+# Assign degree
+emp_ego_wDegree$degree <- empnet_egodegrees
+
+#remove unneeded elements
+rm(emp_ego_reduced)
+
+
+
+```
+
+## Export empirical ego-level attribute file
+```{r}
+
+#export ego-level file to csv
+
+
+
+```
+
+## Attach empirical venue-level node attributes and assign degree
+
+```{r}
+
+# Get degree for venues
+empnet_venuedegrees <- degree(empnet)[substr(empnet%v%"vertex.names",1,1)=="v"] / 2
+
+
+# Select only venue names
+emp_venueNames <- emp_allNames[substr(empnet%v%"vertex.names",1,1)=="v"]
+
+# Subset venue df for only venues included in network object
+empvenue_reduced <-  emp_venuedef[emp_venuedef$venueidChar %in% emp_venueNames,]
+
+# Order venue df using network object names
+emp_venue_wDegree <- empvenue_reduced[match(emp_venueNames, empvenue_reduced$venueidChar),]
+
+# Assign degree
+emp_venue_wDegree$degree <- empnet_venuedegrees
+
+#remove unneeded elements
+rm(empvenue_reduced, emp_allNames)
+
+
+
+```
+
+## Create edgelist 
+```{r}
+
+emp_edgelist <- as.edgelist(empnet)
+emp_edgelist <- as.data.frame(emp_edgelist)
+
+
+
+
+
+```
+
+## Export Empirical venue-level attributes
+
+```{r}
+
+
+#export venue-level file to file path
+
+
+
+
+```
+
+# Calculate Degree Distributions
+
+## Create table for All egos and all venues
+
+```{r}
+#degree dist, egos
+allemp_egos <- table(emp_ego_wDegree$degree) 
+
+#export
+
+
+#degree dist, venues
+allemp_venues <- table(emp_venue_wDegree$degree) 
+# export
+
+
+#reconcile using degree dist for main network object
+degreedist(empnet)
+
+
+```
+## Create df for all egos
+```{r}
+
+#find max degree
+max(emp_ego_wDegree$degree)
+
+#factor degree based on max degree 
+emp_ego_wDegree$degree <- factor(emp_ego_wDegree$degree, levels = 0:26)
+
+#create degree distribution df including n = 0
+allemp_egos <- emp_ego_wDegree %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+           fill = list(degree = 0, n = 0))
+
+```
+
+## Create df for all venues
+```{r}
+
+#find max degree for all emp venues
+max(emp_venue_wDegree$degree)
+
+#factorize degree based on max degree in order to have 0's included
+emp_venue_wDegree$degree <- factor(emp_venue_wDegree$degree, levels = 0:130)
+
+#create degree dist df including n = 0
+allemp_venues <- emp_venue_wDegree %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+           fill = list(degree = 0, n = 0))
+
+
+
+```
+
+
+## Egos: 24 Demographic 
+
+### Create friendly name for demographic categories
+
+```{r}
+
+
+#bring in col to categorize the demographic buckets
+emp_ego_wDegree <- emp_ego_wDegree %>% 
+  mutate(empdemo_cat = case_when(demo_cat == 1  ~ "1: BlackNH,21-, HIV+", 
+                              demo_cat == 2  ~ "2: BlackNH, 21-, HIV-",
+                              
+                              demo_cat == 3  ~ "3: Latinx_Black, 21-, HIV+",
+                              demo_cat == 4  ~ "4: Latinx_Black, 21-, HIV-",
+                              
+                              demo_cat == 5  ~ "5: WhiteNH, 21-, HIV+",
+                              demo_cat == 6  ~ "6: WhiteNH, 21-, HIV-",
+                              
+                              demo_cat == 7  ~ "7: Latinx_White, 21-, HIV+",
+                              demo_cat == 8  ~ "8: Latinx_White, 21-, HIV-",
+                              
+                              demo_cat == 9  ~ "9: Latinx_Other, 21-, HIV+",
+                              demo_cat == 10  ~ "10: Latinx_Other, 21-, HIV-",
+                              
+                              demo_cat == 11  ~ "11: OtherNH, 21-, HIV+",
+                              demo_cat == 12  ~ "12: OtherNH, 21-, HIV-",
+                              
+                              demo_cat == 13  ~ "13: BlackNH, 21+, HIV+",
+                              demo_cat == 14  ~ "14: BlackNH, 21+, HIV-",
+                              
+                              demo_cat == 15  ~ "15: Latinx_Black, 21+, HIV+",
+                              demo_cat == 16  ~ "16: Latinx_Black, 21+, HIV-",
+                              
+                              demo_cat == 17  ~ "WhiteNH, 21+, HIV+",
+                              demo_cat == 18  ~ "WhiteNH, 21+, HIV-",
+                                
+                              demo_cat == 19  ~ "Latinx_White, 21+, HIV+",
+                              demo_cat == 20  ~ "Latinx_White, 21+, HIV-",
+                                
+                              demo_cat == 21  ~ "Latinx_Other, 21+, HIV+",
+                              demo_cat == 22  ~ "Latinx_Other, 21+, HIV-",
+                                 
+                              demo_cat == 23  ~ "OtherNH, 21+, HIV+",
+                              demo_cat == 24  ~ "OtherNH, 21+, HIV-"))
+
+
+```
+
+### Subset by empirical demographic categories
+
+#### Category 1
+
+```{r}
+
+# filter df
+emp_ego_wDegree_1 <- emp_ego_wDegree %>% 
+  filter(demo_cat == 1)
+
+#calculate n of degree and include the 0's
+emp_ego_wDegree_1 <- emp_ego_wDegree_1 %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(655)) #divide by n of total empirical egos
+
+
+```
+
+#### Category 2
+
+```{r}
+# filter df
+emp_ego_wDegree_2 <- emp_ego_wDegree %>% 
+  filter(demo_cat == 2)
+
+#calculate n of degree and include the 0's
+emp_ego_wDegree_2 <- emp_ego_wDegree_2 %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(655)) #divide by n of total empirical egos
+
+
+```
+
+#### Category 3
+
+```{r}
+
+# filter df
+emp_ego_wDegree_3 <- emp_ego_wDegree %>% 
+  filter(demo_cat == 3)
+
+#calculate n of degree and include the 0's
+emp_ego_wDegree_3 <- emp_ego_wDegree_3 %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(655)) #divide by n of total empirical egos
+
+
+```
+
+#### Category 4
+
+```{r}
+
+# filter df
+emp_ego_wDegree_4 <- emp_ego_wDegree %>% 
+  filter(demo_cat == 4 | demo_cat == 8 | demo_cat == 10)
+
+#calculate n of degree and include the 0's
+emp_ego_wDegree_4 <- emp_ego_wDegree_4 %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(655)) #divide by n of total empirical egos
+
+
+```
+
+
+#### Category 5
+
+```{r}
+
+# filter df
+emp_ego_wDegree_5 <- emp_ego_wDegree %>% 
+  filter(demo_cat == 5)
+
+#calculate n of degree and include the 0's
+emp_ego_wDegree_5 <- emp_ego_wDegree_5 %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(655)) #divide by n of total empirical egos
+
+
+```
+
+#### Category 6
+
+```{r}
+
+# filter df
+emp_ego_wDegree_6 <- emp_ego_wDegree %>% 
+  filter(demo_cat == 6)
+
+#calculate n of degree and include the 0's
+emp_ego_wDegree_6 <- emp_ego_wDegree_6 %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(655)) #divide by n of total empirical egos
+
+
+```
+
+#### Category 7
+
+```{r}
+
+# filter df
+emp_ego_wDegree_7 <- emp_ego_wDegree %>% 
+  filter(demo_cat == 7)
+
+#calculate n of degree and include the 0's
+emp_ego_wDegree_7 <- emp_ego_wDegree_7 %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(655)) #divide by n of total empirical egos
+
+
+```
+
+#### Category 8
+
+```{r}
+
+# filter df
+emp_ego_wDegree_8 <- emp_ego_wDegree %>% 
+  filter(demo_cat == 8)
+
+#calculate n of degree and include the 0's
+emp_ego_wDegree_8 <- emp_ego_wDegree_8 %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(655)) #divide by n of total empirical egos
+
+
+```
+
+
+#### Category 9
+
+```{r}
+
+# filter df
+emp_ego_wDegree_9 <- emp_ego_wDegree %>% 
+  filter(demo_cat == 9)
+
+#calculate n of degree and include the 0's
+emp_ego_wDegree_9 <- emp_ego_wDegree_9 %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(655)) #divide by n of total empirical egos
+
+
+```
+
+
+#### Category 10
+
+```{r}
+
+# filter df
+emp_ego_wDegree_10 <- emp_ego_wDegree %>% 
+  filter(demo_cat == 10)
+
+#calculate n of degree and include the 0's
+emp_ego_wDegree_10 <- emp_ego_wDegree_10 %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(655)) #divide by n of total empirical egos
+
+
+```
+
+
+#### Category 11
+
+```{r}
+
+# filter df
+emp_ego_wDegree_11 <- emp_ego_wDegree %>% 
+  filter(demo_cat == 11)
+
+#calculate n of degree and include the 0's
+emp_ego_wDegree_11 <- emp_ego_wDegree_11 %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(655)) #divide by n of total empirical egos
+
+
+```
+
+
+#### Category 12
+
+```{r}
+
+# filter df
+emp_ego_wDegree_12 <- emp_ego_wDegree %>% 
+  filter(demo_cat == 12)
+
+#calculate n of degree and include the 0's
+emp_ego_wDegree_12 <- emp_ego_wDegree_12 %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(655)) #divide by n of total empirical egos
+
+
+```
+
+#### Category 13
+
+```{r}
+
+# filter df
+emp_ego_wDegree_13 <- emp_ego_wDegree %>% 
+  filter(demo_cat == 13)
+
+#calculate n of degree and include the 0's
+emp_ego_wDegree_13 <- emp_ego_wDegree_13 %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(655)) #divide by n of total empirical egos
+
+
+```
+
+
+#### Category 14
+
+```{r}
+
+# filter df
+emp_ego_wDegree_14 <- emp_ego_wDegree %>% 
+  filter(demo_cat == 14)
+
+#calculate n of degree and include the 0's
+emp_ego_wDegree_14 <- emp_ego_wDegree_14 %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(655)) #divide by n of total empirical egos
+
+
+```
+
+
+#### Category 15
+
+```{r}
+
+# filter df
+emp_ego_wDegree_15 <- emp_ego_wDegree %>% 
+  filter(demo_cat == 15)
+
+#calculate n of degree and include the 0's
+emp_ego_wDegree_15 <- emp_ego_wDegree_15 %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(655)) #divide by n of total empirical egos
+
+
+```
+
+
+#### Category 16
+
+```{r}
+
+# filter df
+emp_ego_wDegree_16 <- emp_ego_wDegree %>% 
+  filter(demo_cat == 16)
+
+#calculate n of degree and include the 0's
+emp_ego_wDegree_16 <- emp_ego_wDegree_16 %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(655)) #divide by n of total empirical egos
+
+
+```
+
+
+#### Category 17
+
+```{r}
+
+# filter df
+emp_ego_wDegree_17 <- emp_ego_wDegree %>% 
+  filter(demo_cat == 17)
+
+#calculate n of degree and include the 0's
+emp_ego_wDegree_17 <- emp_ego_wDegree_17 %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(655)) #divide by n of total empirical egos
+
+
+```
+
+
+#### Category 18
+
+```{r}
+
+# filter df
+emp_ego_wDegree_18 <- emp_ego_wDegree %>% 
+  filter(demo_cat == 18)
+
+#calculate n of degree and include the 0's
+emp_ego_wDegree_18 <- emp_ego_wDegree_18 %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(655)) #divide by n of total empirical egos
+
+
+```
+
+
+
+#### Category 19
+
+```{r}
+
+# filter df
+emp_ego_wDegree_19 <- emp_ego_wDegree %>% 
+  filter(demo_cat == 19)
+
+#calculate n of degree and include the 0's
+emp_ego_wDegree_19 <- emp_ego_wDegree_19 %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(655)) #divide by n of total empirical egos
+
+
+```
+
+#### Category 20
+
+```{r}
+
+# filter df
+emp_ego_wDegree_20 <- emp_ego_wDegree %>% 
+  filter(demo_cat == 20)
+
+#calculate n of degree and include the 0's
+emp_ego_wDegree_20 <- emp_ego_wDegree_20 %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(655)) #divide by n of total empirical egos
+
+
+```
+
+
+
+#### Category 21
+
+```{r}
+
+# filter df
+emp_ego_wDegree_21 <- emp_ego_wDegree %>% 
+  filter(demo_cat == 21)
+
+#calculate n of degree and include the 0's
+emp_ego_wDegree_21 <- emp_ego_wDegree_21 %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(655)) #divide by n of total empirical egos
+
+
+```
+
+
+#### Category 22
+
+```{r}
+
+# filter df
+emp_ego_wDegree_22 <- emp_ego_wDegree %>% 
+  filter(demo_cat == 22)
+
+#calculate n of degree and include the 0's
+emp_ego_wDegree_22 <- emp_ego_wDegree_22 %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(655)) #divide by n of total empirical egos
+
+
+```
+
+
+#### Category 23
+
+```{r}
+
+# filter df
+emp_ego_wDegree_23 <- emp_ego_wDegree %>% 
+  filter(demo_cat == 23)
+
+#calculate n of degree and include the 0's
+emp_ego_wDegree_23 <- emp_ego_wDegree_23 %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(655)) #divide by n of total empirical egos
+
+
+```
+
+
+
+#### Category 24
+
+```{r}
+
+# filter df
+emp_ego_wDegree_24 <- emp_ego_wDegree %>% 
+  filter(demo_cat == 24)
+
+#calculate n of degree and include the 0's
+emp_ego_wDegree_24 <- emp_ego_wDegree_24 %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(655)) #divide by n of total empirical egos
+
+
+```
+
+
+
+
+
+
+
+
+
+## Venues: All venue types
+
+### Bar/Club
+
+```{r}
+
+## Bar/Club
+emp_venue_wDegree_bars <- emp_venue_wDegree %>% 
+  filter(VenueKeyType == "Bar/Club")
+
+#calculate n of degree and include the 0's
+emp_venue_wDegree_bars <- emp_venue_wDegree_bars %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(1248))
+
+
+```
+
+### Arts/Theatre
+
+```{r}
+
+## Bar/Club
+emp_venue_wDegree_art <- emp_venue_wDegree %>% 
+  filter(VenueKeyType == "Arts/Theatre")
+
+#calculate n of degree and include the 0's
+emp_venue_wDegree_art <- emp_venue_wDegree_art %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(1248))
+
+
+```
+
+
+
+### Park/Neighborhood
+
+```{r}
+
+## Bar/Club
+emp_venue_wDegree_park <- emp_venue_wDegree %>% 
+  filter(VenueKeyType == "Park/Neighborhood")
+
+#calculate n of degree and include the 0's
+emp_venue_wDegree_park <- emp_venue_wDegree_park %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(1248))
+
+
+```
+
+
+### Restaurant/Coffee Shop
+
+```{r}
+
+## Bar/Club
+emp_venue_wDegree_restaurant <- emp_venue_wDegree %>% 
+  filter(VenueKeyType == "Restaurant/Coffee Shop")
+
+#calculate n of degree and include the 0's
+emp_venue_wDegree_restaurant <- emp_venue_wDegree_restaurant %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(1248))
+
+
+```
+
+
+### Sports/Gaming Venue
+
+```{r}
+
+## Bar/Club
+emp_venue_wDegree_sports <- emp_venue_wDegree %>% 
+  filter(VenueKeyType == "Sports/Gaming Venue")
+
+#calculate n of degree and include the 0's
+emp_venue_wDegree_sports <- emp_venue_wDegree_sports %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(1248))
+
+
+```
+
+
+### Community Organization
+
+```{r}
+
+## Bar/Club
+emp_venue_wDegree_commorg <- emp_venue_wDegree %>% 
+  filter(VenueKeyType == "Community Organization")
+
+#calculate n of degree and include the 0's
+emp_venue_wDegree_commorg <- emp_venue_wDegree_commorg %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(1248))
+
+
+```
+
+
+### School/College/University
+
+```{r}
+
+## Bar/Club
+emp_venue_wDegree_school <- emp_venue_wDegree %>% 
+  filter(VenueKeyType == "School/College/University")
+
+#calculate n of degree and include the 0's
+emp_venue_wDegree_school <- emp_venue_wDegree_school %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(1248))
+
+
+```
+
+
+### Museum/Library/Attraction/Casino
+
+```{r}
+
+## Bar/Club
+emp_venue_wDegree_museum <- emp_venue_wDegree %>% 
+  filter(VenueKeyType == "Museum/Library/Attraction/Casino")
+
+#calculate n of degree and include the 0's
+emp_venue_wDegree_museum <- emp_venue_wDegree_museum %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(1248))
+
+
+```
+
+### Shopping
+
+```{r}
+
+## Bar/Club
+emp_venue_wDegree_shopping <- emp_venue_wDegree %>% 
+  filter(VenueKeyType == "Shopping")
+
+#calculate n of degree and include the 0's
+emp_venue_wDegree_shopping <- emp_venue_wDegree_shopping %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(1248))
+
+
+```
+
+### Something Else
+
+```{r}
+
+## Bar/Club
+emp_venue_wDegree_other <- emp_venue_wDegree %>% 
+  filter(VenueKeyType == "Something Else")
+
+#calculate n of degree and include the 0's
+emp_venue_wDegree_other <- emp_venue_wDegree_other %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(1248))
+
+
+```
+
+
+
+### Bathhouse
+
+```{r}
+
+## Bar/Club
+emp_venue_wDegree_bathhouse <- emp_venue_wDegree %>% 
+  filter(VenueKeyType == "Bathhouse")
+
+#calculate n of degree and include the 0's
+emp_venue_wDegree_bathhouse <- emp_venue_wDegree_bathhouse %>% 
+  group_by(degree) %>% 
+  tally() %>% 
+  ungroup() %>% 
+  complete(degree,
+    fill = list(n = 0)) %>% 
+  mutate(prop = n/(1248))
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Visualize
+
+##### All Empirical Egos
+```{r}
+library(ggplot2)
+
+allemp_egos <- allemp_egos %>% 
+    mutate(prop = n / 655)
+
+emp_egodegreehist <- ggplot(allemp_egos, aes(degree, prop)) + geom_histogram(binwidth = 1, stat = 'identity') + ylim(0, 100) + scale_y_continuous(labels = scales::percent) + xlim(0, 30) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: All Empirical Egos")
+
+#print hist
+
+
+```
+
+##### All venues
+```{r}
+
+#create percentage col
+allemp_venues <- allemp_venues %>% 
+    mutate(prop = n / 1248)
+
+#built hist
+emp_venuedegreehist <- ggplot(allemp_venues, aes(degree, prop)) + geom_histogram(binwidth = 10, stat = "identity") + ylim(0, 900) + scale_y_continuous(labels = scales::percent) + xlim(0,150) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: All Empirical Venues")
+
+#print hist
+#emp_venuedegreehist
+
+
+```
+
+#### Visualize
+##### Egos, 24 Demographic Groups
+
+###### Category 1: BlackNH, Under21, HIV+
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_ego_wDegree_1$degree <- as.numeric(as.character(emp_ego_wDegree_1$degree))
+
+
+#create histogram with prop
+emp_ego_wDegree_1_hist <- ggplot(emp_ego_wDegree_1, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, 0.025) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: BlackNH, Under21, HIV+")
+
+
+#print hist
+emp_ego_wDegree_1_hist
+
+
+```
+
+
+
+###### Category 2: BlackNH, Under21, HIV-
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_ego_wDegree_2$degree <- as.numeric(as.character(emp_ego_wDegree_2$degree))
+
+
+#create histogram with prop
+emp_ego_wDegree_2_hist <- ggplot(emp_ego_wDegree_2, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, 0.025) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: BlackNH, Under21, HIV-")
+
+
+#print hist
+emp_ego_wDegree_2_hist
+
+
+```
+
+
+###### Category 3: Latinx_Black, Under21, HIV+
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_ego_wDegree_3$degree <- as.numeric(as.character(emp_ego_wDegree_3$degree))
+
+
+#create histogram with prop
+emp_ego_wDegree_3_hist <- ggplot(emp_ego_wDegree_3, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, 0.025) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: Latinx-Black, Under21, HIV+")
+
+
+#print hist
+emp_ego_wDegree_3_hist
+
+
+```
+
+###### Category 4: Latinx_Black, Under21, HIV-
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_ego_wDegree_4$degree <- as.numeric(as.character(emp_ego_wDegree_4$degree))
+
+
+#create histogram with prop
+emp_ego_wDegree_4_hist <- ggplot(emp_ego_wDegree_4, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, 0.025) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: Latinx-Black, Under21, HIV-")
+
+
+#print hist
+emp_ego_wDegree_4_hist
+
+
+```
+
+
+
+###### Category 5: WhiteNH, Under21, HIV+
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_ego_wDegree_5$degree <- as.numeric(as.character(emp_ego_wDegree_5$degree))
+
+
+#create histogram with prop
+emp_ego_wDegree_5_hist <- ggplot(emp_ego_wDegree_5, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, 0.025) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: WhiteNH, Under21, HIV+")
+
+
+#print hist
+emp_ego_wDegree_5_hist
+
+
+```
+
+###### Category 6: WhiteNH, Under21, HIV-
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_ego_wDegree_6$degree <- as.numeric(as.character(emp_ego_wDegree_6$degree))
+
+
+#create histogram with prop
+emp_ego_wDegree_6_hist <- ggplot(emp_ego_wDegree_6, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, 0.025) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: WhiteNH, Under21, HIV-")
+
+
+#print hist
+emp_ego_wDegree_6_hist
+
+
+```
+
+
+###### Category 7: Latinx_White, Under21, HIV+
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_ego_wDegree_7$degree <- as.numeric(as.character(emp_ego_wDegree_7$degree))
+
+
+#create histogram with prop
+emp_ego_wDegree_7_hist <- ggplot(emp_ego_wDegree_7, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, 0.025) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: Latinx_White, Under21, HIV+")
+
+
+#print hist
+emp_ego_wDegree_7_hist
+
+
+```
+
+
+
+###### Category 8: Latinx_White, Under21, HIV-
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_ego_wDegree_8$degree <- as.numeric(as.character(emp_ego_wDegree_8$degree))
+
+
+#create histogram with prop
+emp_ego_wDegree_8_hist <- ggplot(emp_ego_wDegree_8, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, 0.025) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: Latinx_White, Under21, HIV-")
+
+
+#print hist
+emp_ego_wDegree_8_hist
+
+
+```
+
+###### Category 9: Latinx_Other, Under21, HIV+
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_ego_wDegree_9$degree <- as.numeric(as.character(emp_ego_wDegree_9$degree))
+
+
+#create histogram with prop
+emp_ego_wDegree_9_hist <- ggplot(emp_ego_wDegree_9, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, 0.025) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: Latinx_Other, Under21, HIV+")
+
+
+#print hist
+emp_ego_wDegree_9_hist
+
+
+```
+
+###### Category 10: Latinx_Other, Under21, HIV-
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_ego_wDegree_10$degree <- as.numeric(as.character(emp_ego_wDegree_10$degree))
+
+
+#create histogram with prop
+emp_ego_wDegree_10_hist <- ggplot(emp_ego_wDegree_10, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, 0.025) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: Latinx_Other, Under21, HIV-")
+
+
+#print hist
+emp_ego_wDegree_10_hist
+
+
+```
+
+###### Category 11: OtherNH, Under21, HIV+
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_ego_wDegree_11$degree <- as.numeric(as.character(emp_ego_wDegree_11$degree))
+
+
+#create histogram with prop
+emp_ego_wDegree_11_hist <- ggplot(emp_ego_wDegree_11, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, 0.025) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: OtherNH, Under21, HIV+")
+
+
+#print hist
+emp_ego_wDegree_11_hist
+
+
+```
+
+
+###### Category 12: OtherNH, Under21, HIV-
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_ego_wDegree_12$degree <- as.numeric(as.character(emp_ego_wDegree_12$degree))
+
+
+#create histogram with prop
+emp_ego_wDegree_12_hist <- ggplot(emp_ego_wDegree_12, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, 0.025) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: OtherNH, Under21, HIV-")
+
+
+#print hist
+emp_ego_wDegree_12_hist
+
+
+```
+
+
+###### Category 13: BlackNH, Over 21, HIV+
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_ego_wDegree_13$degree <- as.numeric(as.character(emp_ego_wDegree_13$degree))
+
+
+#create histogram with prop
+emp_ego_wDegree_13_hist <- ggplot(emp_ego_wDegree_13, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, 0.025) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: BlackNH, Over 21, HIV+")
+
+
+#print hist
+emp_ego_wDegree_13_hist
+
+
+```
+
+
+###### Category 14: BlackNH, Over 21, HIV-
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_ego_wDegree_14$degree <- as.numeric(as.character(emp_ego_wDegree_14$degree))
+
+
+#create histogram with prop
+emp_ego_wDegree_14_hist <- ggplot(emp_ego_wDegree_14, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, 0.025) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: BlackNH, Over 21, HIV-")
+
+
+#print hist
+emp_ego_wDegree_14_hist
+
+
+```
+
+
+###### Category 15: Latinx_Black, Over 21, HIV+
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_ego_wDegree_15$degree <- as.numeric(as.character(emp_ego_wDegree_15$degree))
+
+
+#create histogram with prop
+emp_ego_wDegree_15_hist <- ggplot(emp_ego_wDegree_15, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, 0.025) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: Latinx_Black, Over 21, HIV+")
+
+
+#print hist
+emp_ego_wDegree_15_hist
+
+
+```
+
+###### Category 16: Latinx_Black, Over 21, HIV-
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_ego_wDegree_16$degree <- as.numeric(as.character(emp_ego_wDegree_16$degree))
+
+
+#create histogram with prop
+emp_ego_wDegree_16_hist <- ggplot(emp_ego_wDegree_16, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, 0.025) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: Latinx_Black, Over 21, HIV-")
+
+
+#print hist
+emp_ego_wDegree_16_hist
+
+
+```
+
+
+###### Category 17: WhiteNH, Over 21, HIV+
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_ego_wDegree_17$degree <- as.numeric(as.character(emp_ego_wDegree_17$degree))
+
+
+#create histogram with prop
+emp_ego_wDegree_17_hist <- ggplot(emp_ego_wDegree_17, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, 0.025) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: WhiteNH, Over 21, HIV+")
+
+
+#print hist
+emp_ego_wDegree_17_hist
+
+
+```
+
+
+###### Category 18: WhiteNH, Over 21, HIV-
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_ego_wDegree_18$degree <- as.numeric(as.character(emp_ego_wDegree_18$degree))
+
+
+#create histogram with prop
+emp_ego_wDegree_18_hist <- ggplot(emp_ego_wDegree_18, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, 0.025) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: WhiteNH, Over 21, HIV-")
+
+
+#print hist
+emp_ego_wDegree_18_hist
+
+
+```
+
+
+###### Category 19: Latinx_White, Over 21, HIV+
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_ego_wDegree_19$degree <- as.numeric(as.character(emp_ego_wDegree_19$degree))
+
+
+#create histogram with prop
+emp_ego_wDegree_19_hist <- ggplot(emp_ego_wDegree_19, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, 0.025) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: Latinx_White, Over 21, HIV+")
+
+
+#print hist
+emp_ego_wDegree_19_hist
+
+
+```
+
+
+###### Category 20: Latinx_White, Over 21, HIV-
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_ego_wDegree_20$degree <- as.numeric(as.character(emp_ego_wDegree_20$degree))
+
+
+#create histogram with prop
+emp_ego_wDegree_20_hist <- ggplot(emp_ego_wDegree_20, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, 0.025) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: Latinx_White, Over 21, HIV+")
+
+
+#print hist
+emp_ego_wDegree_20_hist
+
+
+```
+
+
+
+###### Category 21: Latinx_Other, Over 21, HIV+
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_ego_wDegree_21$degree <- as.numeric(as.character(emp_ego_wDegree_21$degree))
+
+
+#create histogram with prop
+emp_ego_wDegree_21_hist <- ggplot(emp_ego_wDegree_21, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, 0.025) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: Latinx_Other, Over 21, HIV+")
+
+
+#print hist
+emp_ego_wDegree_21_hist
+
+
+```
+
+
+###### Category 22: Latinx_Other, Over 21, HIV-
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_ego_wDegree_22$degree <- as.numeric(as.character(emp_ego_wDegree_22$degree))
+
+
+#create histogram with prop
+emp_ego_wDegree_22_hist <- ggplot(emp_ego_wDegree_22, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, 0.025) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: Latinx_Other, Over 21, HIV-")
+
+
+#print hist
+emp_ego_wDegree_22_hist
+
+
+```
+
+
+
+###### Category 23: OtherNH, Over 21, HIV+
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_ego_wDegree_23$degree <- as.numeric(as.character(emp_ego_wDegree_23$degree))
+
+
+#create histogram with prop
+emp_ego_wDegree_23_hist <- ggplot(emp_ego_wDegree_23, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, 0.025) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: OtherNH, Over 21, HIV+")
+
+
+#print hist
+emp_ego_wDegree_23_hist
+
+
+```
+
+###### Category 24: OtherNH, Over 21, HIV-
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_ego_wDegree_24$degree <- as.numeric(as.character(emp_ego_wDegree_24$degree))
+
+
+#create histogram with prop
+emp_ego_wDegree_24_hist <- ggplot(emp_ego_wDegree_24, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, 0.025) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: OtherNH, Over 21, HIV-")
+
+
+#print hist
+emp_ego_wDegree_24_hist
+
+
+```
+
+
+
+
+##### Venues, by Venue Type
+
+
+###### Bars/Club
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_venue_wDegree_bars$degree <- as.numeric(as.character(emp_venue_wDegree_bars$degree))
+
+
+#create multi-panel plot
+emp_venuedegree_typehist_bars <- ggplot(emp_venue_wDegree_bars, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, .1) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: Empirical Venues - Bars")
+
+
+
+#print
+emp_venuedegree_typehist_bars 
+
+```
+
+###### Arts/Theatre
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_venue_wDegree_art$degree <- as.numeric(as.character(emp_venue_wDegree_art$degree))
+
+
+#create multi-panel plot
+emp_venuedegree_typehist_art <- ggplot(emp_venue_wDegree_art, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, .1) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: Empirical Venues - Arts/Theatre")
+
+
+
+#print
+emp_venuedegree_typehist_art
+
+```
+
+###### Bathhouse
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_venue_wDegree_bathhouse$degree <- as.numeric(as.character(emp_venue_wDegree_bathhouse$degree))
+
+
+#create multi-panel plot
+emp_venuedegree_typehist_bathhouse <- ggplot(emp_venue_wDegree_bathhouse, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, .1) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: Empirical Venues - Bathhouse")
+
+
+
+#print
+emp_venuedegree_typehist_bathhouse
+
+```
+
+###### Community Organization
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_venue_wDegree_commorg$degree <- as.numeric(as.character(emp_venue_wDegree_commorg$degree))
+
+
+#create multi-panel plot
+emp_venuedegree_typehist_commorg <- ggplot(emp_venue_wDegree_commorg, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, .1) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: Empirical Venues - Community Organization")
+
+
+
+#print
+emp_venuedegree_typehist_commorg
+
+```
+
+
+
+###### Museum/Library/Attraction/Casino
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_venue_wDegree_museum$degree <- as.numeric(as.character(emp_venue_wDegree_museum$degree))
+
+
+#create multi-panel plot
+emp_venuedegree_typehist_museum <- ggplot(emp_venue_wDegree_museum, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, .1) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: Empirical Venues - Museum/Library/Attraction/Casino")
+
+
+
+#print
+emp_venuedegree_typehist_museum
+
+
+```
+
+###### Park/Neighborhood
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_venue_wDegree_park$degree <- as.numeric(as.character(emp_venue_wDegree_park$degree))
+
+
+#create multi-panel plot
+emp_venuedegree_typehist_park <- ggplot(emp_venue_wDegree_park, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, .1) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: Empirical Venues - Park/Neighborhood")
+
+
+
+#print
+emp_venuedegree_typehist_park
+
+
+```
+
+###### Restaurant/Coffee Shop
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_venue_wDegree_restaurant$degree <- as.numeric(as.character(emp_venue_wDegree_restaurant$degree))
+
+
+#create multi-panel plot
+emp_venuedegree_typehist_restaurant <- ggplot(emp_venue_wDegree_restaurant, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, .1) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: Empirical Venues - Restaurant/Coffee Shop")
+
+
+
+#print
+emp_venuedegree_typehist_restaurant
+
+
+```
+
+###### School/College/University
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_venue_wDegree_school$degree <- as.numeric(as.character(emp_venue_wDegree_school$degree))
+
+
+#create multi-panel plot
+emp_venuedegree_typehist_school <- ggplot(emp_venue_wDegree_school, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, .1) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: Empirical Venues - School/College/University")
+
+
+
+#print
+emp_venuedegree_typehist_school
+
+
+```
+
+
+###### Shopping
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_venue_wDegree_shopping$degree <- as.numeric(as.character(emp_venue_wDegree_shopping$degree))
+
+
+#create multi-panel plot
+emp_venuedegree_typehist_shopping <- ggplot(emp_venue_wDegree_shopping, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, .1) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: Empirical Venues - Shopping")
+
+
+
+#print
+emp_venuedegree_typehist_shopping
+
+
+```
+
+###### Sports/Gaming Venue
+
+```{r}
+
+#convert degree back to numeric from factor in order to plot; need to have a nested conversion because as.numeric will read as the level the value is in and not the actual numerical value: https://www.dummies.com/programming/r/how-to-convert-a-factor-in-r/
+
+emp_venue_wDegree_sports$degree <- as.numeric(as.character(emp_venue_wDegree_sports$degree))
+
+
+#create multi-panel plot
+emp_venuedegree_typehist_sports <- ggplot(emp_venue_wDegree_sports, aes(degree, prop)) + geom_histogram(binwidth = 5, stat = "identity") + scale_y_continuous(labels = scales::percent) + ylim(0, .1) + xlab("Degree") + ylab("Proportion of Degree") + ggtitle("Degree Distribution: Empirical Venues - Sports/Gaming Venues")
+
+
+
+#print
+emp_venuedegree_typehist_sports
+
+
+```
